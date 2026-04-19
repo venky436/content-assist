@@ -1,0 +1,14 @@
+node_modules
+dist
+.turbo
+.env
+.env.*
+*.log
+.DS_Store
+**/node_modules
+**/dist
+**/.turbo
+**/.next
+**/.expo
+apps/mobile
+apps/admin
