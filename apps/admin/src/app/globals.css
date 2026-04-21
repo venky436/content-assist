@@ -1,3 +1,76 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+	:root {
+		/* Dark theme palette — matches mobile tokens, authored in HSL so we can
+		   swap to light later by overriding these CSS vars. */
+		--bg: 240 12% 5%;
+		--bg-elevated: 240 14% 9%;
+		--surface: 240 14% 9%;
+		--surface-alt: 240 14% 13%;
+		--surface-pressed: 240 14% 17%;
+		--border: 240 12% 19%;
+		--border-strong: 240 12% 25%;
+		--text-primary: 0 0% 100%;
+		--text-secondary: 240 14% 72%;
+		--text-muted: 240 8% 45%;
+		--accent: 339 100% 62%;
+		--accent-pressed: 339 78% 52%;
+		--accent-soft: 339 100% 62% / 0.14;
+		--success: 142 71% 45%;
+		--success-soft: 142 71% 45% / 0.16;
+		--danger: 0 84% 60%;
+		--danger-soft: 0 84% 60% / 0.14;
+	}
+
+	html {
+		color-scheme: dark;
+	}
+
+	body {
+		background-color: hsl(var(--bg));
+		color: hsl(var(--text-primary));
+		font-feature-settings: "rlig" 1, "calt" 1;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	* {
+		border-color: hsl(var(--border));
+	}
+
+	/* Custom scrollbar — subtle + themed */
+	::-webkit-scrollbar {
+		width: 10px;
+		height: 10px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background: hsl(var(--border-strong));
+		border-radius: 999px;
+		border: 2px solid hsl(var(--bg));
+	}
+	::-webkit-scrollbar-thumb:hover {
+		background: hsl(var(--text-muted));
+	}
+
+	/* Selection uses accent colour — makes the app feel branded */
+	::selection {
+		background-color: hsl(var(--accent) / 0.35);
+		color: hsl(var(--text-primary));
+	}
+}
+
+@layer utilities {
+	.text-balance {
+		text-wrap: balance;
+	}
+	.glass {
+		background: hsl(var(--surface) / 0.6);
+		backdrop-filter: blur(18px) saturate(140%);
+		-webkit-backdrop-filter: blur(18px) saturate(140%);
+	}
+}

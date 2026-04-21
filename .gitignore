@@ -43,3 +43,6 @@ pnpm-debug.log*
 
 # drizzle
 drizzle/
+
+# bgm assets — developers drop their own licensed MP3s locally
+apps/server/src/assets/bgm/*.mp3

@@ -7,6 +7,8 @@ import { analyze } from "@server/modules/analyze";
 import { generate } from "@server/modules/generate";
 import { health } from "@server/modules/health";
 import { images } from "@server/modules/images";
+import { video, videosStatic } from "@server/modules/video";
+import { startVideoCleanup } from "@server/services/video-storage";
 
 const app = new OpenAPIHono({
 	defaultHook: (result, c) => {
@@ -41,6 +43,11 @@ app.route("/health", health);
 app.route("/generate", generate);
 app.route("/analyze", analyze);
 app.route("/images", images);
+app.route("/video", video);
+app.route("/videos", videosStatic);
+
+// Kick off the 1-hour TTL cleanup sweep on the tmp video directory.
+startVideoCleanup();
 
 app.notFound((c) =>
 	c.json({ error: "not_found", message: `No route for ${c.req.path}` }, 404),

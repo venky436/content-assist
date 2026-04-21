@@ -5,6 +5,7 @@ const envSchema = z.object({
 	SERVER_PORT: z.coerce.number().int().positive().default(3000),
 	GEMINI_API_KEY: z.string().min(1, "GEMINI_API_KEY is required"),
 	REPLICATE_API_TOKEN: z.string().min(1, "REPLICATE_API_TOKEN is required"),
+	OPENAI_API_KEY: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -22,6 +23,7 @@ export const config = {
 	port: parsed.data.SERVER_PORT,
 	geminiApiKey: parsed.data.GEMINI_API_KEY,
 	replicateApiToken: parsed.data.REPLICATE_API_TOKEN,
+	openaiApiKey: parsed.data.OPENAI_API_KEY,
 	isDev: parsed.data.NODE_ENV === "development",
 } as const;
 

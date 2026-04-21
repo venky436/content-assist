@@ -1,9 +1,11 @@
 import { Image } from "expo-image";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, {
+	Easing,
 	useAnimatedStyle,
 	useSharedValue,
+	withRepeat,
 	withTiming,
 } from "react-native-reanimated";
 import type { SceneType } from "@content-assist/shared";
@@ -22,6 +24,8 @@ type Props = {
 	selected: boolean;
 	onToggle?: () => void;
 	onPreview?: () => void;
+	onRegenerate?: () => void;
+	regenerating?: boolean;
 	readOnly?: boolean;
 };
 
@@ -41,6 +45,8 @@ export function ImageTile({
 	selected,
 	onToggle,
 	onPreview,
+	onRegenerate,
+	regenerating = false,
 	readOnly = false,
 }: Props) {
 	const [imageError, setImageError] = useState(false);
@@ -52,6 +58,21 @@ export function ImageTile({
 	const animatedStyle = useAnimatedStyle(() => ({
 		transform: [{ scale: scale.value }],
 	}));
+
+	// Shimmer animation driver for the regenerating skeleton state.
+	const shimmer = useSharedValue(0.35);
+	useEffect(() => {
+		if (regenerating) {
+			shimmer.value = withRepeat(
+				withTiming(0.85, { duration: 900, easing: Easing.inOut(Easing.ease) }),
+				-1,
+				true,
+			);
+		} else {
+			shimmer.value = withTiming(0.35, { duration: 200 });
+		}
+	}, [regenerating, shimmer]);
+	const shimmerStyle = useAnimatedStyle(() => ({ opacity: shimmer.value }));
 
 	const handlePressIn = useCallback(() => {
 		scale.value = withTiming(0.97, { duration: timings.fast });
@@ -69,6 +90,12 @@ export function ImageTile({
 		haptics.selection();
 		onToggle();
 	}, [onToggle, readOnly]);
+
+	const handleRegenerate = useCallback(() => {
+		if (!onRegenerate || regenerating) return;
+		haptics.tapMedium();
+		onRegenerate();
+	}, [onRegenerate, regenerating]);
 
 	const handleDownload = useCallback(async () => {
 		if (downloadState !== "idle") return;
@@ -103,7 +130,12 @@ export function ImageTile({
 					selected ? [styles.tileSelected, shadow.accent] : styles.tileUnselected,
 				]}
 			>
-				{imageError ? (
+				{regenerating ? (
+					<Animated.View style={[styles.skeleton, shimmerStyle]}>
+						<ActivityIndicator color={colors.textSecondary} size="small" />
+						<Text style={styles.skeletonLabel}>Regenerating…</Text>
+					</Animated.View>
+				) : imageError ? (
 					<View style={styles.fallback}>
 						<Text style={styles.fallbackIcon}>🖼️</Text>
 						<Text style={styles.fallbackTitle}>Image unavailable</Text>
@@ -120,7 +152,7 @@ export function ImageTile({
 					/>
 				)}
 
-				{displayLabel && !imageError ? (
+				{displayLabel && !imageError && !regenerating ? (
 					<View
 						style={[
 							styles.labelPill,
@@ -136,7 +168,7 @@ export function ImageTile({
 					</View>
 				) : null}
 
-				{showCheckbox && !imageError ? (
+				{showCheckbox && !imageError && !regenerating ? (
 					<Pressable
 						onPress={handleToggle}
 						hitSlop={12}
@@ -151,7 +183,31 @@ export function ImageTile({
 					</Pressable>
 				) : null}
 
-				{!imageError ? (
+				{onRegenerate ? (
+					<Pressable
+						onPress={handleRegenerate}
+						hitSlop={10}
+						disabled={regenerating}
+						style={[
+							styles.regenBtn,
+							showCheckbox ? styles.regenBtnBelowCheckbox : styles.regenBtnTopRight,
+							regenerating ? styles.regenBtnDisabled : null,
+						]}
+						accessibilityRole="button"
+						accessibilityLabel={
+							regenerating ? "Regenerating this scene" : "Regenerate this scene"
+						}
+						accessibilityState={{ busy: regenerating }}
+					>
+						{regenerating ? (
+							<ActivityIndicator color="#fff" size="small" />
+						) : (
+							<Text style={styles.regenText}>↻</Text>
+						)}
+					</Pressable>
+				) : null}
+
+				{!imageError && !regenerating ? (
 					<Pressable
 						onPress={handleDownload}
 						hitSlop={8}
@@ -178,7 +234,11 @@ export function ImageTile({
 			</Pressable>
 
 			<Text style={styles.timestamp}>
-				{imageError ? "Unavailable" : `Updated ${formatRelative(generatedAt)}`}
+				{regenerating
+					? "Regenerating this scene…"
+					: imageError
+						? "Unavailable"
+						: `Updated ${formatRelative(generatedAt)}`}
 			</Text>
 		</Animated.View>
 	);
@@ -226,6 +286,22 @@ const styles = StyleSheet.create({
 		...font.caption,
 		fontSize: 11,
 		color: colors.textMuted,
+	},
+	skeleton: {
+		width: "100%",
+		height: "100%",
+		backgroundColor: colors.surfaceAlt,
+		alignItems: "center",
+		justifyContent: "center",
+		gap: spacing.sm,
+	},
+	skeletonLabel: {
+		...font.caption,
+		fontSize: 11,
+		color: colors.textSecondary,
+		fontWeight: "700",
+		letterSpacing: 0.6,
+		textTransform: "uppercase",
 	},
 	labelPill: {
 		position: "absolute",
@@ -276,6 +352,31 @@ const styles = StyleSheet.create({
 		backgroundColor: "rgba(0,0,0,0.55)",
 		alignItems: "center",
 		justifyContent: "center",
+	},
+	regenBtn: {
+		position: "absolute",
+		right: spacing.sm,
+		width: 32,
+		height: 32,
+		borderRadius: radius.pill,
+		backgroundColor: "rgba(0,0,0,0.55)",
+		alignItems: "center",
+		justifyContent: "center",
+	},
+	regenBtnTopRight: {
+		top: spacing.sm,
+	},
+	regenBtnBelowCheckbox: {
+		// Checkbox is 30pt, spacing.sm = 8pt → stack ~6pt below
+		top: spacing.sm + 30 + 6,
+	},
+	regenBtnDisabled: {
+		opacity: 0.7,
+	},
+	regenText: {
+		color: "#fff",
+		fontSize: 16,
+		fontWeight: "700",
 	},
 	downloadBtnSaved: {
 		backgroundColor: colors.success,

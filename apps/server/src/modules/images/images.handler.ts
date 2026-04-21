@@ -18,7 +18,9 @@ import type {
 const GEMINI_TIMEOUT_MS = 10_000;
 const MAX_SCENE_PROMPT_LEN = 500;
 const MAX_LABEL_LEN = 40;
-const DEFAULT_COUNT = 2;
+const DEFAULT_COUNT = 3;
+const REPLICATE_RETRY_DELAY_MS = 11_000;
+const REPLICATE_MAX_RETRIES = 1;
 
 type Scene = {
 	sceneType: SceneType;
@@ -180,58 +182,97 @@ function makeHandler(label: string): RouteHandler<Route> {
 			);
 		}
 
-		let renderedUrls: string[];
-		try {
-			const results = await Promise.all(
-				scenesToRender.map((scene) =>
-					generateImages(scene.prompt, { count: 1, aspectRatio: "1:1" }),
-				),
-			);
-			renderedUrls = results.map((urls) => urls[0] ?? "").filter(Boolean);
-		} catch (error) {
-			const replicateCode =
-				error instanceof ReplicateError ? error.code : undefined;
+		/**
+		 * Render a single scene with one retry on `rate_limited`.
+		 * Replicate's throttled tier (< $5 credit) allows only burst=1 / 6 req per minute,
+		 * which naturally rejects the parallel call. A single ~11s retry usually clears it.
+		 */
+		async function renderOne(scenePrompt: string): Promise<string | null> {
+			let attempt = 0;
+			while (attempt <= REPLICATE_MAX_RETRIES) {
+				try {
+					const urls = await generateImages(scenePrompt, {
+						count: 1,
+						aspectRatio: "1:1",
+					});
+					return urls[0] ?? null;
+				} catch (err) {
+					const code = err instanceof ReplicateError ? err.code : undefined;
+					if (code === "rate_limited" && attempt < REPLICATE_MAX_RETRIES) {
+						logger.warn({
+							msg: `${label}: rate limited — retrying in ${REPLICATE_RETRY_DELAY_MS}ms`,
+							attempt,
+						});
+						await new Promise((r) => setTimeout(r, REPLICATE_RETRY_DELAY_MS));
+						attempt++;
+						continue;
+					}
+					throw err;
+				}
+			}
+			return null;
+		}
+
+		// Render scenes SEQUENTIALLY to respect Replicate's burst=1 limit on the
+		// throttled tier (< $5 credit). Parallel calls otherwise 429 instantly.
+		// Trade-off: 2-image gen ≈ 12–16s instead of 6–8s. Acceptable given the robustness.
+		const now = Date.now();
+		const images: Array<{
+			url: string;
+			prompt: string;
+			generatedAt: number;
+			sceneType?: SceneType;
+			label?: string;
+		}> = [];
+		const failures: ReplicateError[] = [];
+		for (const scene of scenesToRender) {
+			try {
+				const url = await renderOne(scene.prompt);
+				if (url) {
+					images.push({
+						url,
+						prompt: scene.prompt,
+						generatedAt: now,
+						sceneType: scene.sceneType,
+						label: scene.label,
+					});
+				}
+			} catch (err) {
+				if (err instanceof ReplicateError) failures.push(err);
+				logger.warn({
+					msg: `${label}: scene render failed`,
+					sceneType: scene.sceneType,
+					error: err instanceof Error ? err.message : String(err),
+				});
+			}
+		}
+
+		// All scenes failed → surface the dominant error code with a tailored message
+		if (images.length === 0) {
+			const first = failures[0];
 			const code =
-				replicateCode === "timeout"
+				first?.code === "timeout"
 					? "timeout"
-					: replicateCode === "insufficient_credit"
+					: first?.code === "insufficient_credit"
 						? "insufficient_credit"
-						: "generation_failed";
+						: first?.code === "rate_limited"
+							? "rate_limited"
+							: "generation_failed";
 			logger.error({
-				msg: `${label}: replicate call failed`,
+				msg: `${label}: all scenes failed`,
 				code,
-				error: error instanceof Error ? error.message : String(error),
+				failureCount: scenesToRender.length,
 			});
 			const message =
 				code === "timeout"
 					? "Image generation took too long. Try again."
 					: code === "insufficient_credit"
 						? "Image service is out of credit. Add credit at replicate.com/account/billing and retry."
-						: "Couldn't generate images. Try again.";
+						: code === "rate_limited"
+							? "Replicate throttled the request. While your credit is under $5, only 1 image per ~10s is allowed. Wait a moment and retry, or top up to unlock parallel generation."
+							: "Couldn't generate images. Try again.";
 			return c.json({ error: code, message }, 502);
 		}
-
-		if (renderedUrls.length === 0) {
-			return c.json(
-				{
-					error: "generation_failed",
-					message: "No images came back from the model. Try again.",
-				},
-				502,
-			);
-		}
-
-		const now = Date.now();
-		const images = renderedUrls.map((url, i) => {
-			const scene = scenesToRender[i];
-			return {
-				url,
-				prompt: scene?.prompt ?? "",
-				generatedAt: now,
-				sceneType: scene?.sceneType,
-				label: scene?.label,
-			};
-		});
 
 		const response = {
 			images,

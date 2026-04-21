@@ -5,9 +5,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Card, SectionLabel } from "@mobile/components/ui";
 import { colors, font, radius, shadow, spacing } from "@mobile/constants/theme";
 import { haptics } from "@mobile/lib/haptics";
-import { useGenerate } from "@mobile/modules/generate/hooks";
+import { useGenerate, useGenerateScript } from "@mobile/modules/generate/hooks";
 import { CopyButton } from "@mobile/modules/generate/components/CopyButton";
+import { ScriptCard } from "@mobile/modules/generate/components/ScriptCard";
+import { getPostMode } from "@mobile/modules/saved/utils";
 import { useGenerateImages } from "@mobile/modules/images/hooks";
+import type { SceneType } from "@content-assist/shared";
 import { ImageGrid } from "@mobile/modules/images/components/ImageGrid";
 import { ImageLoadingSkeleton } from "@mobile/modules/images/components/ImageLoadingSkeleton";
 import { ImagePreviewModal } from "@mobile/modules/images/components/ImagePreviewModal";
@@ -19,6 +22,9 @@ import {
 	useSavedPost,
 	useUpdateSavedPost,
 } from "@mobile/modules/saved/hooks";
+import { useGenerateVideo } from "@mobile/modules/video/hooks";
+import { VideoPlayer } from "@mobile/modules/video/components/VideoPlayer";
+import { VideoSkeleton } from "@mobile/modules/video/components/VideoSkeleton";
 
 export default function SavedDetailScreen() {
 	const router = useRouter();
@@ -29,6 +35,7 @@ export default function SavedDetailScreen() {
 	const updatePost = useUpdateSavedPost();
 	const deletePost = useDeleteSavedPost();
 	const generate = useGenerate();
+	const generateScript = useGenerateScript();
 
 	const [showDelete, setShowDelete] = useState(false);
 	const [showRegen, setShowRegen] = useState(false);
@@ -39,11 +46,54 @@ export default function SavedDetailScreen() {
 	const [imagesJustRegenerated, setImagesJustRegenerated] = useState(false);
 	const [previewIndex, setPreviewIndex] = useState<number | null>(null);
 	const generateImages = useGenerateImages();
+	const generateVideo = useGenerateVideo();
+	const [videoError, setVideoError] = useState<string | null>(null);
+	const [videoJustRegenerated, setVideoJustRegenerated] = useState(false);
+	const [regeneratingSceneType, setRegeneratingSceneType] = useState<
+		SceneType | undefined
+	>(undefined);
 
 	const handleRegenerateConfirm = useCallback(async () => {
 		if (!post) return;
 		setShowRegen(false);
 		setRegenError(null);
+
+		const mode = getPostMode(post);
+		if (mode === "on_camera") {
+			generateScript.mutate(
+				{ idea: post.idea, contentType: post.contentType },
+				{
+					onSuccess: async (data) => {
+						await updatePost.mutateAsync({
+							id: post.id,
+							patch: {
+								source: "generate",
+								mode: "on_camera",
+								scriptHook: data.hook,
+								scriptLines: data.lines,
+								scriptCta: data.cta,
+								hashtags: data.hashtags,
+								// clear analyzer-only fields on regenerate
+								originalContent: undefined,
+								score: undefined,
+								verdict: undefined,
+								betterHook: undefined,
+								improvedPost: undefined,
+							},
+						});
+						haptics.success();
+						setJustRegenerated(true);
+						setTimeout(() => setJustRegenerated(false), 2000);
+					},
+					onError: (err) => {
+						setRegenError(err.message ?? "Could not regenerate. Try again.");
+						haptics.error();
+					},
+				},
+			);
+			return;
+		}
+
 		generate.mutate(
 			{ idea: post.idea, contentType: post.contentType },
 			{
@@ -52,6 +102,7 @@ export default function SavedDetailScreen() {
 						id: post.id,
 						patch: {
 							source: "generate",
+							mode: "faceless",
 							hooks: data.hooks,
 							recommendedHook: data.recommendedHook,
 							recommendedReason: data.recommendedReason,
@@ -75,7 +126,7 @@ export default function SavedDetailScreen() {
 				},
 			},
 		);
-	}, [generate, post, updatePost]);
+	}, [generate, generateScript, post, updatePost]);
 
 	const handleRegenerateImages = useCallback(
 		(modifier: string | undefined) => {
@@ -118,14 +169,113 @@ export default function SavedDetailScreen() {
 		[generateImages, post, updatePost],
 	);
 
+	const handleRegenerateOneSavedImage = useCallback(
+		(sceneType: SceneType) => {
+			if (!post || !post.images) return;
+			if (generateImages.isPending) return;
+			setImagesError(null);
+			setRegeneratingSceneType(sceneType);
+			generateImages.mutate(
+				{
+					idea: post.idea,
+					caption: post.caption ?? post.idea,
+					count: 1,
+					sceneTypes: [sceneType],
+				},
+				{
+					onSuccess: async (data) => {
+						const fresh = data.images[0];
+						setRegeneratingSceneType(undefined);
+						if (!fresh || !post.images) return;
+						const nextImages = post.images.map((img) =>
+							img.sceneType === sceneType
+								? {
+										url: fresh.url,
+										prompt: fresh.prompt,
+										generatedAt: fresh.generatedAt,
+										sceneType: fresh.sceneType,
+										label: fresh.label,
+									}
+								: img,
+						);
+						await updatePost.mutateAsync({
+							id: post.id,
+							patch: { images: nextImages },
+						});
+						haptics.success();
+					},
+					onError: (err) => {
+						setRegeneratingSceneType(undefined);
+						setImagesError(err.message ?? "Couldn't regenerate this scene.");
+						haptics.error();
+					},
+				},
+			);
+		},
+		[generateImages, post, updatePost],
+	);
+
+	const handleRegenerateVideo = useCallback(() => {
+		if (!post) return;
+		if (generateVideo.isPending) return;
+		if (!post.images || post.images.length < 2) return;
+		setVideoError(null);
+		generateVideo.mutate(
+			{
+				idea: post.idea,
+				caption: post.caption ?? post.idea,
+				hook: post.recommendedHook,
+				images: post.images.slice(0, 3).map((img) => ({
+					url: img.url,
+					label: img.label,
+					sceneType: img.sceneType,
+				})),
+				bgm: post.video?.bgmUsed ?? true,
+				tone: "motivational",
+				voice: post.video?.voice ?? "female",
+			},
+			{
+				onSuccess: async (data) => {
+					await updatePost.mutateAsync({
+						id: post.id,
+						patch: {
+							video: {
+								videoUrl: data.videoUrl,
+								voiceover: data.voiceover,
+								durationMs: data.durationMs,
+								bgmUsed: data.bgmUsed,
+								voice: data.voice,
+								generatedAt: Date.now(),
+							},
+						},
+					});
+					haptics.success();
+					setVideoJustRegenerated(true);
+					setTimeout(() => setVideoJustRegenerated(false), 2000);
+				},
+				onError: (err) => {
+					setVideoError(err.message ?? "Couldn't regenerate video.");
+					haptics.error();
+				},
+			},
+		);
+	}, [generateVideo, post, updatePost]);
+
 	const handleReAnalyze = useCallback(() => {
 		if (!post) return;
-		const content =
-			post.source === "analyze"
-				? post.originalContent ?? post.idea
-				: [post.recommendedHook, post.caption, (post.hashtags ?? []).join(" ")]
-						.filter(Boolean)
-						.join("\n");
+		const mode = getPostMode(post);
+		let content: string;
+		if (post.source === "analyze") {
+			content = post.originalContent ?? post.idea;
+		} else if (mode === "on_camera") {
+			content = [post.scriptHook, (post.scriptLines ?? []).join("\n"), post.scriptCta]
+				.filter(Boolean)
+				.join("\n");
+		} else {
+			content = [post.recommendedHook, post.caption, (post.hashtags ?? []).join(" ")]
+				.filter(Boolean)
+				.join("\n");
+		}
 		router.push({ pathname: "/(tabs)/analyze", params: { seed: content } });
 	}, [post, router]);
 
@@ -137,13 +287,23 @@ export default function SavedDetailScreen() {
 		router.back();
 	}, [deletePost, post, router]);
 
-	const copyable = post
-		? post.source === "analyze"
-			? post.improvedPost ?? ""
-			: [post.recommendedHook, post.caption, (post.hashtags ?? []).join(" ")]
-					.filter(Boolean)
-					.join("\n\n")
-		: "";
+	const copyable = (() => {
+		if (!post) return "";
+		if (post.source === "analyze") return post.improvedPost ?? "";
+		if (getPostMode(post) === "on_camera") {
+			return [
+				post.scriptHook,
+				(post.scriptLines ?? []).join("\n"),
+				post.scriptCta,
+				(post.hashtags ?? []).join(" "),
+			]
+				.filter(Boolean)
+				.join("\n\n");
+		}
+		return [post.recommendedHook, post.caption, (post.hashtags ?? []).join(" ")]
+			.filter(Boolean)
+			.join("\n\n");
+	})();
 
 	if (isLoading) {
 		return (
@@ -163,8 +323,19 @@ export default function SavedDetailScreen() {
 	}
 
 	const isAnalyzed = post.source === "analyze";
-	const accent = isAnalyzed ? colors.accent : colors.success;
-	const sourceLabel = isAnalyzed ? "🔍  ANALYZED" : "✨  GENERATED";
+	const mode = getPostMode(post);
+	const isScript = !isAnalyzed && mode === "on_camera";
+	const accent = isAnalyzed
+		? colors.accent
+		: isScript
+			? "#8B5CF6"
+			: colors.success;
+	const sourceLabel = isAnalyzed
+		? "🔍  ANALYZED"
+		: isScript
+			? "🎤  SCRIPT"
+			: "🎬  POST";
+	const regenPending = isScript ? generateScript.isPending : generate.isPending;
 
 	return (
 		<View style={styles.root}>
@@ -206,7 +377,44 @@ export default function SavedDetailScreen() {
 					</View>
 				) : null}
 
-				{isAnalyzed ? (
+				{isScript ? (
+					<View style={styles.section}>
+						{post.scriptHook &&
+						post.scriptLines &&
+						post.scriptLines.length >= 3 &&
+						post.scriptCta ? (
+							<ScriptCard
+								script={{
+									hook: post.scriptHook,
+									lines: post.scriptLines,
+									cta: post.scriptCta,
+									hashtags: post.hashtags ?? [],
+								}}
+							/>
+						) : (
+							<Card padded>
+								<Text style={styles.bodyText}>
+									This script is missing some lines. Tap Regenerate to rebuild it.
+								</Text>
+							</Card>
+						)}
+
+						{post.hashtags && post.hashtags.length > 0 ? (
+							<View style={styles.section}>
+								<SectionLabel>{`${post.hashtags.length} hashtags`}</SectionLabel>
+								<Card padded>
+									<View style={styles.tags}>
+										{post.hashtags.map((tag) => (
+											<View key={tag} style={styles.tag}>
+												<Text style={styles.tagText}>{tag}</Text>
+											</View>
+										))}
+									</View>
+								</Card>
+							</View>
+						) : null}
+					</View>
+				) : isAnalyzed ? (
 					<View style={styles.section}>
 						{typeof post.score === "number" ? (
 							<View style={[styles.scoreBlock, shadow.accent]}>
@@ -306,7 +514,7 @@ export default function SavedDetailScreen() {
 						) : null}
 					</View>
 				)}
-				{(post.images && post.images.length > 0) || generateImages.isPending ? (
+				{isScript ? null : (post.images && post.images.length > 0) || generateImages.isPending ? (
 					<View style={styles.section}>
 						<SectionLabel accent>Your images</SectionLabel>
 						{imagesJustRegenerated ? (
@@ -328,6 +536,8 @@ export default function SavedDetailScreen() {
 								images={post.images}
 								readOnly
 								onPreview={(i) => setPreviewIndex(i)}
+								onRegenerate={handleRegenerateOneSavedImage}
+								regeneratingSceneType={regeneratingSceneType}
 							/>
 						) : null}
 						<Button
@@ -360,6 +570,59 @@ export default function SavedDetailScreen() {
 						/>
 					</View>
 				)}
+
+				{/* Video block — only for Faceless posts that have images to compose from */}
+				{isScript
+					? null
+					: post.video || generateVideo.isPending ? (
+						<View style={styles.section}>
+							<SectionLabel accent>Reel video</SectionLabel>
+							{videoJustRegenerated ? (
+								<View style={styles.successBanner}>
+									<Text style={styles.successBannerText}>✓ New video generated</Text>
+								</View>
+							) : null}
+							{videoError ? (
+								<View style={styles.errorBanner}>
+									<Text style={styles.errorBannerText}>{videoError}</Text>
+								</View>
+							) : null}
+							{generateVideo.isPending ? (
+								<VideoSkeleton />
+							) : post.video ? (
+								<VideoPlayer
+									videoUrl={post.video.videoUrl}
+									voiceover={post.video.voiceover}
+									durationMs={post.video.durationMs}
+									bgmUsed={post.video.bgmUsed}
+									onRegenerate={handleRegenerateVideo}
+									regenerating={generateVideo.isPending}
+								/>
+							) : null}
+							{!generateVideo.isPending && post.video ? (
+								<Text style={styles.videoHint}>
+									Videos live on the server for ~1 hour. If playback fails, tap
+									Regenerate.
+								</Text>
+							) : null}
+						</View>
+					) : post.images && post.images.length >= 2 ? (
+						<View style={styles.section}>
+							<SectionLabel>Add reel video (optional)</SectionLabel>
+							<Button
+								label={
+									generateVideo.isPending ? "Composing video…" : "🎬  Generate video"
+								}
+								onPress={handleRegenerateVideo}
+								variant="secondary"
+								size="md"
+								fullWidth
+								loading={generateVideo.isPending}
+								disabled={generateVideo.isPending}
+								haptic="medium"
+							/>
+						</View>
+					) : null}
 			</ScrollView>
 
 			{/* Sticky action bar */}
@@ -397,13 +660,13 @@ export default function SavedDetailScreen() {
 					</View>
 					<View style={[styles.actionItem, { flex: 1.6 }]}>
 						<Button
-							label={generate.isPending ? "Regenerating…" : "✨ Regenerate"}
+							label={regenPending ? "Regenerating…" : "✨ Regenerate"}
 							onPress={() => setShowRegen(true)}
 							variant="primary"
 							size="md"
 							fullWidth
-							loading={generate.isPending}
-							disabled={generate.isPending}
+							loading={regenPending}
+							disabled={regenPending}
 							haptic="medium"
 						/>
 					</View>
@@ -413,7 +676,11 @@ export default function SavedDetailScreen() {
 			<ConfirmSheet
 				visible={showRegen}
 				title="Replace with a new version?"
-				message="We'll generate fresh hooks, caption, and hashtags for the same idea. The old content will be overwritten."
+				message={
+					isScript
+						? "We'll generate a fresh hook, spoken lines, and CTA for the same idea. The old script will be overwritten."
+						: "We'll generate fresh hooks, caption, and hashtags for the same idea. The old content will be overwritten."
+				}
 				confirmLabel="Regenerate"
 				cancelLabel="Keep current"
 				confirmVariant="primary"
@@ -512,6 +779,12 @@ const styles = StyleSheet.create({
 	errorBannerText: {
 		...font.bodyStrong,
 		color: colors.danger,
+	},
+	videoHint: {
+		...font.caption,
+		color: colors.textMuted,
+		textAlign: "center",
+		marginTop: spacing.sm,
 	},
 	section: { gap: spacing.md, marginBottom: spacing.xl },
 	scoreBlock: {

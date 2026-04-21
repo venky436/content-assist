@@ -60,6 +60,26 @@ export function ImagePreviewModal({
 	}, [visible, initialIndex, images.length]);
 
 	const current = images[index];
+	const currentUrl = current?.url;
+
+	// IMPORTANT: all hooks must be called before any early return.
+	const handleDownload = useCallback(async () => {
+		if (!currentUrl) return;
+		if (downloadState !== "idle") return;
+		setDownloadState("downloading");
+		haptics.tapLight();
+		const result = await downloadImageToGallery(currentUrl);
+		if (result.ok) {
+			haptics.success();
+			setDownloadState("saved");
+			setTimeout(() => setDownloadState("idle"), 1800);
+		} else {
+			haptics.error();
+			setDownloadState("error");
+			setTimeout(() => setDownloadState("idle"), 1800);
+		}
+	}, [currentUrl, downloadState]);
+
 	if (!visible || !current) {
 		return (
 			<Modal transparent visible={visible} onRequestClose={onClose} animationType="fade">
@@ -86,22 +106,6 @@ export function ImagePreviewModal({
 		haptics.selection();
 		onToggleSelect(current.url);
 	};
-
-	const handleDownload = useCallback(async () => {
-		if (downloadState !== "idle") return;
-		setDownloadState("downloading");
-		haptics.tapLight();
-		const result = await downloadImageToGallery(current.url);
-		if (result.ok) {
-			haptics.success();
-			setDownloadState("saved");
-			setTimeout(() => setDownloadState("idle"), 1800);
-		} else {
-			haptics.error();
-			setDownloadState("error");
-			setTimeout(() => setDownloadState("idle"), 1800);
-		}
-	}, [current.url, downloadState]);
 
 	return (
 		<Modal
