@@ -12,7 +12,8 @@ const client = new Replicate({
 export type ReplicateErrorCode =
 	| "timeout"
 	| "generation_failed"
-	| "insufficient_credit";
+	| "insufficient_credit"
+	| "rate_limited";
 
 export class ReplicateError extends Error {
 	public readonly originalError?: unknown;
@@ -29,10 +30,18 @@ export class ReplicateError extends Error {
 	}
 }
 
+function errorMessageText(err: unknown): string {
+	return err instanceof Error ? err.message : typeof err === "string" ? err : "";
+}
+
 function isInsufficientCreditError(err: unknown): boolean {
-	const msg =
-		err instanceof Error ? err.message : typeof err === "string" ? err : "";
+	const msg = errorMessageText(err);
 	return /402|insufficient credit|payment required/i.test(msg);
+}
+
+function isRateLimitedError(err: unknown): boolean {
+	const msg = errorMessageText(err);
+	return /429|too many requests|rate limit|throttled/i.test(msg);
 }
 
 type GenerateOptions = {
@@ -127,7 +136,7 @@ export async function generateImages(
 		if (isInsufficientCreditError(error)) {
 			logger.error({
 				msg: "replicate: insufficient credit",
-				error: error instanceof Error ? error.message : String(error),
+				error: errorMessageText(error),
 			});
 			throw new ReplicateError(
 				"Replicate account has insufficient credit",
@@ -135,9 +144,20 @@ export async function generateImages(
 				"insufficient_credit",
 			);
 		}
+		if (isRateLimitedError(error)) {
+			logger.warn({
+				msg: "replicate: rate limited",
+				error: errorMessageText(error),
+			});
+			throw new ReplicateError(
+				"Replicate rate limit hit",
+				error,
+				"rate_limited",
+			);
+		}
 		logger.error({
 			msg: "replicate request failed",
-			error: error instanceof Error ? error.message : String(error),
+			error: errorMessageText(error),
 		});
 		throw new ReplicateError(
 			"Replicate request failed",

@@ -2,6 +2,8 @@ import { useMutation, type UseMutationOptions } from "@tanstack/react-query";
 import type {
 	GenerateRequest,
 	GenerateResponse,
+	GenerateScriptRequest,
+	GenerateScriptResponse,
 	HooksOnlyRequest,
 	HooksOnlyResponse,
 } from "@content-assist/shared";
@@ -21,6 +23,15 @@ export function useRegenerateHooks(
 ) {
 	return useMutation<HooksOnlyResponse, Error, HooksOnlyRequest>({
 		mutationFn: (req) => generateApi.regenerateHooks(req),
+		...options,
+	});
+}
+
+export function useGenerateScript(
+	options?: UseMutationOptions<GenerateScriptResponse, Error, GenerateScriptRequest>,
+) {
+	return useMutation<GenerateScriptResponse, Error, GenerateScriptRequest>({
+		mutationFn: (req) => generateApi.generateScript(req),
 		...options,
 	});
 }

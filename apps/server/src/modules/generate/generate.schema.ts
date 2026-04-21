@@ -11,9 +11,9 @@ const errorSchema = generateErrorSchema.openapi("GenerateError");
 
 export const generateRoute = createRoute({
 	method: "post",
-	path: "/",
+	path: "/content",
 	tags: ["generate"],
-	summary: "Generate hooks, caption, and hashtags for an Instagram idea",
+	summary: "Generate hooks, caption, and hashtags for an Instagram idea (Faceless mode)",
 	request: {
 		body: {
 			content: { "application/json": { schema: requestSchema } },

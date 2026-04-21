@@ -28,6 +28,7 @@
     "expo-media-library": "~16.0.5",
     "expo-router": "~3.5.23",
     "expo-status-bar": "~1.12.1",
+    "expo-video": "~1.2.4",
     "ky": "^1.7.2",
     "react": "18.2.0",
     "react-native": "0.74.5",

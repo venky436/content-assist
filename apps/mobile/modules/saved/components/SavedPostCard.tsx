@@ -10,6 +10,7 @@ import type { SavedPost } from "@content-assist/shared";
 import { colors, font, radius, shadow, spacing, timings } from "@mobile/constants/theme";
 import { haptics } from "@mobile/lib/haptics";
 import { formatRelative } from "@mobile/modules/saved/format";
+import { getPostMode } from "@mobile/modules/saved/utils";
 
 type Props = {
 	post: SavedPost;
@@ -47,12 +48,23 @@ export function SavedPostCard({ post, index, onPress, onLongPress }: Props) {
 	}, [onPress]);
 
 	const isAnalyzed = post.source === "analyze";
-	const sourceColor = isAnalyzed ? colors.accent : colors.success;
-	const sourceLabel = isAnalyzed ? "🔍  ANALYZED" : "✨  GENERATED";
+	const mode = getPostMode(post);
+	const isScript = !isAnalyzed && mode === "on_camera";
+	const sourceColor = isAnalyzed
+		? colors.accent
+		: isScript
+			? "#8B5CF6"
+			: colors.success;
+	const sourceLabel = isAnalyzed
+		? "🔍  ANALYZED"
+		: isScript
+			? "🎤  SCRIPT"
+			: "🎬  POST";
 
-	const preview =
-		post.source === "analyze"
-			? post.improvedPost ?? post.betterHook ?? post.originalContent
+	const preview = isAnalyzed
+		? post.improvedPost ?? post.betterHook ?? post.originalContent
+		: isScript
+			? post.scriptHook ?? post.scriptLines?.[0]
 			: post.recommendedHook ?? post.hooks?.[0];
 
 	return (

@@ -25,7 +25,7 @@ export const generateImagesRequestSchema = z.object({
 	idea: z.string().min(3).max(500),
 	caption: z.string().max(500).optional(),
 	modifier: z.string().max(80).optional(),
-	count: z.number().int().min(2).max(3).optional(), // default 2
+	count: z.number().int().min(1).max(3).optional(), // default 3; count=1 = single-scene regen
 	sceneTypes: z.array(sceneTypeSchema).min(1).max(3).optional(), // for regenerate: keep same scenes
 });
 export type GenerateImagesRequest = z.infer<typeof generateImagesRequestSchema>;

@@ -6,3 +6,4 @@
 - [GENERATE.md](./GENERATE.md) — hooks + caption + hashtags pipeline
 - [ANALYZE.md](./ANALYZE.md) — ruthless-critic analyzer pipeline
 - [IMAGES.md](./IMAGES.md) — image generation pipeline (Gemini planning → Replicate rendering)
+- [VIDEO.md](./VIDEO.md) — video composition pipeline (OpenAI TTS + FFmpeg Ken Burns + BGM mix + Range streaming)

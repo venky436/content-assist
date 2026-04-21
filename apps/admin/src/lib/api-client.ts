@@ -1,0 +1,89 @@
+import ky, { HTTPError } from "ky";
+import type { ZodTypeAny, z } from "zod";
+
+const prefixUrl =
+	process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:3000";
+
+export const http = ky.create({
+	prefixUrl,
+	timeout: 45_000,
+	retry: 0,
+	hooks: {
+		beforeRequest: [
+			(request) => {
+				if (!request.headers.has("Content-Type")) {
+					request.headers.set("Content-Type", "application/json");
+				}
+			},
+		],
+	},
+});
+
+export class ApiError<B = unknown> extends Error {
+	status: number;
+	body?: B;
+	constructor(status: number, message: string, body?: B) {
+		super(message);
+		this.status = status;
+		this.body = body;
+		Object.setPrototypeOf(this, ApiError.prototype);
+	}
+}
+
+type Method = "get" | "post" | "put" | "patch" | "delete";
+type Options = Parameters<typeof http.get>[1];
+
+/**
+ * Make a request and validate the response against a zod schema.
+ * Throws ApiError on network error, non-2xx, or shape mismatch.
+ */
+export async function apiRequest<TSchema extends ZodTypeAny>(
+	method: Method,
+	path: string,
+	responseSchema: TSchema,
+	options?: Options,
+): Promise<z.infer<TSchema>> {
+	const normalizedPath = path.replace(/^\/+/, "");
+	try {
+		const response = await http[method](normalizedPath, options);
+		const raw: unknown = await response.json();
+		const parsed = responseSchema.safeParse(raw);
+		if (!parsed.success) {
+			throw new ApiError(
+				response.status,
+				"Response did not match expected schema.",
+				{ issues: parsed.error.issues, raw },
+			);
+		}
+		return parsed.data as z.infer<TSchema>;
+	} catch (error) {
+		if (error instanceof ApiError) throw error;
+		if (error instanceof HTTPError) {
+			let body: unknown;
+			try {
+				body = await error.response.json();
+			} catch {
+				body = undefined;
+			}
+			const message =
+				(body && typeof body === "object" && "message" in body
+					? String((body as { message: unknown }).message)
+					: undefined) ?? error.message;
+			throw new ApiError(error.response.status, message, body);
+		}
+		throw new ApiError(0, error instanceof Error ? error.message : "Network error");
+	}
+}
+
+export const api = {
+	get: <T extends ZodTypeAny>(path: string, schema: T, options?: Options) =>
+		apiRequest("get", path, schema, options),
+	post: <T extends ZodTypeAny>(path: string, schema: T, options?: Options) =>
+		apiRequest("post", path, schema, options),
+	put: <T extends ZodTypeAny>(path: string, schema: T, options?: Options) =>
+		apiRequest("put", path, schema, options),
+	patch: <T extends ZodTypeAny>(path: string, schema: T, options?: Options) =>
+		apiRequest("patch", path, schema, options),
+	delete: <T extends ZodTypeAny>(path: string, schema: T, options?: Options) =>
+		apiRequest("delete", path, schema, options),
+};

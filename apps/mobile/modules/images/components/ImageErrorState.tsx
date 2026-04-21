@@ -12,12 +12,15 @@ type Props = {
 export function ImageErrorState({ message, code, onRetry }: Props) {
 	const isTimeout = code === "timeout";
 	const isOutOfCredit = code === "insufficient_credit";
-	const icon = isTimeout ? "⏱" : isOutOfCredit ? "$" : "!";
+	const isRateLimited = code === "rate_limited";
+	const icon = isTimeout ? "⏱" : isOutOfCredit ? "$" : isRateLimited ? "⏳" : "!";
 	const title = isTimeout
 		? "Images took too long"
 		: isOutOfCredit
 			? "Out of image credit"
-			: "Couldn't generate images";
+			: isRateLimited
+				? "Rate limit hit"
+				: "Couldn't generate images";
 	return (
 		<Animated.View entering={FadeIn.duration(180)} style={styles.wrap}>
 			<View style={styles.iconWrap}>
