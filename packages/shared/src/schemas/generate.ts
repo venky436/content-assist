@@ -4,7 +4,11 @@ export const contentTypeSchema = z.enum(["reel", "image", "story"]);
 export type ContentType = z.infer<typeof contentTypeSchema>;
 
 export const generateRequestSchema = z.object({
-	idea: z.string().min(3).max(500),
+	idea: z
+		.string()
+		.trim()
+		.min(15, "Describe your idea in at least a sentence (15+ chars) — '/hello' is not enough for Gemini to anchor to.")
+		.max(500),
 	contentType: contentTypeSchema,
 });
 export type GenerateRequest = z.infer<typeof generateRequestSchema>;
@@ -25,7 +29,11 @@ export const generateErrorSchema = z.object({
 export type GenerateError = z.infer<typeof generateErrorSchema>;
 
 export const hooksOnlyRequestSchema = z.object({
-	idea: z.string().min(3).max(500),
+	idea: z
+		.string()
+		.trim()
+		.min(15, "Describe your idea in at least a sentence (15+ chars) — '/hello' is not enough for Gemini to anchor to.")
+		.max(500),
 	contentType: contentTypeSchema,
 	stronger: z.boolean().optional().default(false),
 	avoidHooks: z.array(z.string()).max(20).optional(),

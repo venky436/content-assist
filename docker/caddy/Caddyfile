@@ -16,7 +16,17 @@
 	# API routes — strip /api prefix before forwarding
 	handle /api/* {
 		uri strip_prefix /api
-		reverse_proxy server:3000
+		reverse_proxy server:3000 {
+			# Video/image generation can run up to ~5 min on a 2GB droplet
+			# (Gemini narration + OpenAI TTS + ffmpeg compose + S3 upload).
+			# Keep every proxy timeout above the client's 300s cap.
+			transport http {
+				dial_timeout 10s
+				response_header_timeout 5m
+				read_timeout 5m
+				write_timeout 5m
+			}
+		}
 	}
 
 	# Everything else → admin (Next.js)
