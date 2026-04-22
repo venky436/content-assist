@@ -3,11 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Sparkles, Search, Bookmark, Wand2, type LucideIcon } from "lucide-react";
+import {
+	Bookmark,
+	Search,
+	Sparkles,
+	UserCircle,
+	Wand2,
+	type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/cn";
+import { UserPill } from "@/components/layout/UserPill";
 
 type NavItem = {
-	href: "/generate" | "/analyze" | "/saved";
+	href: "/generate" | "/analyze" | "/saved" | "/profile";
 	label: string;
 	hint: string;
 	icon: LucideIcon;
@@ -31,6 +39,12 @@ const NAV: NavItem[] = [
 		label: "Saved",
 		hint: "Your workspace",
 		icon: Bookmark,
+	},
+	{
+		href: "/profile",
+		label: "Profile",
+		hint: "You + your media",
+		icon: UserCircle,
 	},
 ];
 
@@ -92,14 +106,12 @@ export function Sidebar() {
 				})}
 			</nav>
 
-			<div className="border-t border-border/60 px-5 py-5">
-				<div className="flex items-center gap-2 text-[11px] text-text-muted">
+			<div className="flex flex-col gap-3 border-t border-border/60 px-3 py-4">
+				<div className="flex items-center gap-2 px-2 text-[11px] text-text-muted">
 					<span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
 					<span className="font-medium uppercase tracking-wider">API online</span>
 				</div>
-				<p className="mt-2 text-[11px] leading-relaxed text-text-muted">
-					Phase 1 · Generate + Analyze + Saved
-				</p>
+				<UserPill />
 			</div>
 		</aside>
 	);

@@ -16,9 +16,12 @@ type Option = {
 	hint: string;
 };
 
+// Mobile keeps the 2-option simple toggle for now (admin has the 6-voice
+// picker with previews). Uses the same VideoVoice enum values the server
+// expects — nova is our default bright/female voice, onyx is the deep male.
 const OPTIONS: Option[] = [
-	{ value: "female", label: "Female", glyph: "🎤", hint: "Bright, confident" },
-	{ value: "male", label: "Male", glyph: "🎙️", hint: "Deep, grounded" },
+	{ value: "nova", label: "Female", glyph: "🎤", hint: "Bright, confident" },
+	{ value: "onyx", label: "Male", glyph: "🎙️", hint: "Deep, grounded" },
 ];
 
 type Props = {
@@ -29,7 +32,7 @@ type Props = {
 
 export function VoicePicker({ value, onChange, disabled }: Props) {
 	const [trackWidth, setTrackWidth] = useState(0);
-	const offset = useSharedValue(value === "female" ? 0 : 1);
+	const offset = useSharedValue(value === "nova" ? 0 : 1);
 
 	const handleLayout = useCallback((e: LayoutChangeEvent) => {
 		setTrackWidth(e.nativeEvent.layout.width);
@@ -40,7 +43,7 @@ export function VoicePicker({ value, onChange, disabled }: Props) {
 			if (disabled) return;
 			if (next === value) return;
 			haptics.selection();
-			offset.value = withTiming(next === "female" ? 0 : 1, {
+			offset.value = withTiming(next === "nova" ? 0 : 1, {
 				duration: timings.base,
 			});
 			onChange(next);

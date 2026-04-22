@@ -1,0 +1,26 @@
+# Caddy reverse proxy — hides the :3000 / :3001 ports from users.
+#
+# Routes:
+#   /api/*  →  server:3000  (prefix stripped before forwarding)
+#   /*      →  admin:3001   (everything else)
+#
+# To add HTTPS later: replace `:80` with the domain and remove the
+# `auto_https off` directive. Caddy handles Let's Encrypt automatically.
+
+{
+	# Dev mode — no HTTPS yet (duckdns subdomain, port 80 only)
+	auto_https off
+}
+
+:80 {
+	# API routes — strip /api prefix before forwarding
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy server:3000
+	}
+
+	# Everything else → admin (Next.js)
+	handle {
+		reverse_proxy admin:3001
+	}
+}

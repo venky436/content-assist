@@ -1,4 +1,5 @@
 import type { ContentType } from "../schemas/generate";
+import type { VideoEnergy, VideoVoice } from "../schemas/video";
 
 export type SavedPostSource = "generate" | "analyze";
 
@@ -40,18 +41,31 @@ export type SavedPost = {
 		sceneType?: "struggle" | "decision" | "result";
 		label?: string;
 		type?: string; // legacy (old saved posts); readers should prefer `label`
+		/**
+		 * S3 object key under our bucket (e.g. `generated-images/{userId}/{uuid}.jpg`).
+		 * The server re-presigns `url` from this key on every read so the displayed
+		 * URL never rots. Absent on legacy saves from before the S3 mirror shipped.
+		 */
+		objectKey?: string;
 	}>;
 
-	// Attached composed reel video (from /video/generate). Note: the `videoUrl`
-	// points to the server's /tmp directory which cleans up after ~1h. Callers
-	// should handle a 404 gracefully and offer a Regenerate action.
+	// Attached composed reel video (from /video/generate). `videoUrl` is a
+	// presigned S3 GET with a short TTL; the server refreshes it on every fetch
+	// via `videoKey`. Legacy saves may still point at the server's local
+	// `/videos/:id.mp4` path — renderers should handle a 404 gracefully.
 	video?: {
 		videoUrl: string;
 		voiceover: string;
 		durationMs: number;
 		bgmUsed: boolean;
 		generatedAt: number;
-		voice?: "female" | "male"; // optional for BC; newer saves include it
+		voice?: VideoVoice; // optional for BC; newer saves include it
+		/** S3 object key for the composed MP4 in our bucket, when present. */
+		videoKey?: string;
+		/** S3 object key of the user-uploaded BGM track, when a custom track drove composition. */
+		bgmKey?: string;
+		/** Pacing bucket used for this video's voice + image cuts. */
+		energy?: VideoEnergy;
 	};
 
 	createdAt: number;

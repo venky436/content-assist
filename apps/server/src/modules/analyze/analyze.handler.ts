@@ -1,6 +1,7 @@
 import type { RouteHandler } from "@hono/zod-openapi";
 import { analyzeResponseSchema, type AnalyzeResponse } from "@content-assist/shared";
 import { logger } from "@server/lib/logger";
+import type { AppEnv } from "@server/middleware/auth.middleware";
 import { GeminiError, generateJson } from "@server/services/gemini";
 import {
 	cleanAnalysis,
@@ -49,7 +50,7 @@ async function runGemini(
 	}
 }
 
-export const analyzeHandler: RouteHandler<typeof analyzeRoute> = async (c) => {
+export const analyzeHandler: RouteHandler<typeof analyzeRoute, AppEnv> = async (c) => {
 	const body = c.req.valid("json");
 	const content = body.content.trim();
 
@@ -137,6 +138,8 @@ export const analyzeHandler: RouteHandler<typeof analyzeRoute> = async (c) => {
 		confidence: parsed.data.confidence,
 		attempt,
 		latencyMs: Date.now() - startedAt,
+		userId: c.get("userId"),
+		userEmail: c.get("user")?.email,
 	});
 
 	return c.json(parsed.data, 200);

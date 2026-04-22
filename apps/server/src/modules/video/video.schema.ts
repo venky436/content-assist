@@ -30,6 +30,10 @@ export const generateVideoRoute = createRoute({
 			content: { "application/json": { schema: errorSchema } },
 			description: "Invalid request",
 		},
+		403: {
+			content: { "application/json": { schema: errorSchema } },
+			description: "Requested custom BGM asset does not belong to the user",
+		},
 		502: {
 			content: { "application/json": { schema: errorSchema } },
 			description: "Composition failed",

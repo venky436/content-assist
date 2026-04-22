@@ -253,7 +253,7 @@ function containsAny(text: string, words: string[]): boolean {
 	});
 }
 
-type ScoreBreakdown = {
+export type ScoreBreakdown = {
 	score: number;
 	additions: string[];
 	deductions: string[];

@@ -1,0 +1,91 @@
+name: content-assist
+
+# Production-style compose for the droplet. Pulls pre-built images from
+# Docker Hub — no build happens on the droplet itself. 2 GB droplet is
+# comfortable because nothing compiles here.
+#
+# Usage (on the droplet):
+#   export DOCKERHUB_USER=yourhandle
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: content-assist-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-content_assist}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-content_assist}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - content-assist
+
+  server:
+    image: ${DOCKERHUB_USER}/content-assist-server:${TAG:-latest}
+    container_name: content-assist-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SERVER_PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-content_assist}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:-http://localhost}
+    # No host ports exposed — caddy reaches server:3000 on the internal network.
+    networks:
+      - content-assist
+
+  admin:
+    image: ${DOCKERHUB_USER}/content-assist-admin:${TAG:-latest}
+    container_name: content-assist-admin
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      NODE_ENV: production
+    # No host ports exposed — caddy reaches admin:3001 on the internal network.
+    networks:
+      - content-assist
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: content-assist-caddy
+    restart: unless-stopped
+    depends_on:
+      - admin
+      - server
+    ports:
+      - "80:80"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - content-assist
+
+networks:
+  content-assist:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

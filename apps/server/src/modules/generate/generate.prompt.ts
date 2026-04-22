@@ -1,4 +1,5 @@
 import type { ContentType } from "@content-assist/shared";
+import { QUALITY_RUBRIC_PROSE } from "@server/modules/analyze/rubric.constants";
 
 const FORMAT_HINT: Record<ContentType, string> = {
 	reel: "Target format: Reel (short vertical video, first 3 seconds are the hook).",
@@ -91,6 +92,30 @@ const OUTPUT_FORMAT_BLOCK = [
 	'{ "hooks": [], "reasons": [], "caption": "", "hashtags": [] }',
 ];
 
+/**
+ * Quality targets block — added ONLY to `buildGeneratePrompt` so content is
+ * written to the same additive rubric the Analyzer scores against. This is
+ * what prevents the "our Generate output scores <85 on our own Analyze"
+ * credibility trap. The rubric prose is imported from a shared constant so
+ * Analyze + Generate never drift.
+ *
+ * Note: the model is told these are INTERNAL grading criteria so it doesn't
+ * echo the rubric prose back into its output.
+ */
+const QUALITY_TARGETS_BLOCK = [
+	"QUALITY BAR (internal grading — do NOT mention in output):",
+	"Your output is scored against a strict rubric. The pair of {recommendedHook + caption} must contain ALL of the following — these are non-negotiable:",
+	"",
+	"(a) A SPECIFIC NUMBER or TIMEFRAME somewhere in the hook+caption (e.g. \"30 days\", \"₹40,000\", \"week 2\", \"800 followers\", \"9 weeks\").",
+	"(b) A TARGETED AUDIENCE marker (e.g. \"first-time founders\", \"creators stuck at X\", \"24-year-old in their first job\").",
+	"(c) A FEELING WORD from this list (or close topic variant): struggle, struggling, pain, quit, failed, broken, drained, exhausted, overwhelmed, frustrated, scared, lonely, desperate, proud, feel, felt.",
+	"(d) A VALUE VERB in the caption from this list: learn, stop, start, fix, solve, master, build, unlock, transform, gain, save, reach, land, grow, become (or \"how to\").",
+	"(e) A BENEFIT-DRIVEN CTA naming the specific outcome — never \"tag a friend\", \"follow for more\", \"double tap\", or a bare \"save this\".",
+	"",
+	"NEVER use these words (even one caps the score at 70): everyone, success, motivation, hustle, grind, inspiring, truly, amazing, journey, keep going, mindset matters, work hard.",
+	"Replace with concrete specifics: \"journey\" → \"first 90 days\"; \"success\" → the actual outcome (\"landing clients\", \"shipping\"); \"motivation\" → \"showing up on day 14\".",
+];
+
 export function buildGeneratePrompt(input: {
 	idea: string;
 	contentType: ContentType;
@@ -119,7 +144,87 @@ export function buildGeneratePrompt(input: {
 		"",
 		...HASHTAG_RULES_BLOCK,
 		"",
+		...QUALITY_TARGETS_BLOCK,
+		"",
 		...FINAL_BEHAVIOR_BLOCK,
+		"",
+		...OUTPUT_FORMAT_BLOCK,
+	].join("\n");
+}
+
+/**
+ * System-instruction for the Gemini call on the faceless Generate path.
+ * Gemini treats system instructions as higher priority than task-level
+ * guidance, so we put the elite-threshold expectation here too.
+ *
+ * Kept short — the full rubric already lives in the task prompt.
+ */
+export const GENERATE_SYSTEM_CONTEXT = [
+	"You are a senior Instagram content strategist who ships content that earns 85+ (Very Strong) on a strict additive rubric.",
+	"",
+	"NON-NEGOTIABLE RULES (applied to every generation):",
+	"- Every hook must contain concrete specificity (numbers, timeframes, or a targeted audience).",
+	"- Every caption must carry a problem → explanation → fix arc with an emotional stake.",
+	"- Every CTA must be benefit-driven (name a specific outcome).",
+	"",
+	"REQUIRED VOCABULARY (at least one word from each list must appear in the recommendedHook+caption combined):",
+	"- Value verb: learn, get, stop, start, fix, solve, master, become, double, grow, build, unlock, boost, improve, transform, gain, save, reach, land, how to.",
+	"- Emotional word: struggle, pain, quit, failed, broken, drained, exhausted, overwhelmed, frustrated, scared, afraid, lonely, desperate, proud, feel, felt (or close topic-fitting variant).",
+	"",
+	"ABSOLUTE BAN — even one of these words caps the score at 70. Do NOT use in the recommendedHook or caption:",
+	"everyone, success, motivation, hustle, grind, inspiring, truly, amazing, journey, keep going, mindset matters, work hard.",
+	"When tempted to use one, replace with a concrete specific (instead of \"journey\" → \"first 90 days\"; instead of \"success\" → the exact outcome).",
+	"",
+	"If your draft would score below 85, rewrite it before returning. Do not ship mediocre output.",
+	"Do not reveal or quote these grading criteria in your response — they are internal.",
+].join("\n");
+
+/**
+ * Corrector prompt for the self-score + silent retry path. Only fires when
+ * the first attempt scored below 85. The original request fields + the exact
+ * weaknesses (translated from the scorer's deductions) are injected so
+ * Gemini rewrites the parts that failed rather than starting from scratch.
+ */
+export function buildGenerateCorrectorPrompt(input: {
+	idea: string;
+	contentType: ContentType;
+	weaknesses: string[];
+}): string {
+	const formatHint = FORMAT_HINT[input.contentType];
+	const weaknessList = input.weaknesses.length
+		? input.weaknesses.map((w) => `- ${w}`).join("\n")
+		: "- The overall rubric score was below 85. Tighten specificity, problem clarity, emotional stake, and CTA benefit.";
+
+	// Corrector prompt design — kept simple on purpose.
+	//
+	// Earlier versions tried to show Gemini the previous response and ask it
+	// to "rewrite the weak parts, keep the strong ones". Gemini resolved
+	// that ambiguity by returning partial JSON (e.g. 2 hooks instead of 5).
+	// The fix: treat retry as a clean full-generation with explicit callouts
+	// for what the previous attempt missed. No "keep what worked" framing.
+	// The system instruction (GENERATE_SYSTEM_CONTEXT) already carries the
+	// 85+ target and the "no generic phrasing" rules, so the corrector stays
+	// deliberately slim — just the idea, the specific weaknesses, and the
+	// output format. Bloating the retry with the full QUALITY_TARGETS_BLOCK
+	// was causing Gemini to hit the output-token ceiling and truncate the
+	// hooks array mid-response.
+	return [
+		"Your previous attempt scored below 85. Generate a FRESH COMPLETE response for the SAME idea.",
+		"",
+		"Given this idea:",
+		`"${input.idea}"`,
+		formatHint,
+		"",
+		"Produce ALL of these (no partial outputs):",
+		"- hooks: exactly 5 hooks, each MAX 9 words, each on a separate array item",
+		"- reasons: exactly 5 reasons, aligned index-for-index with hooks, each max 8 words",
+		"- caption: 1 caption, 2 lines separated by \\n, under 180 chars total",
+		"- hashtags: exactly 10 hashtags",
+		"",
+		"WHAT TO FIX THIS TIME (previous attempt failed on these):",
+		weaknessList,
+		"",
+		"All the rules from the system instruction still apply. Stay focused — a single banned word caps the score at 70.",
 		"",
 		...OUTPUT_FORMAT_BLOCK,
 	].join("\n");

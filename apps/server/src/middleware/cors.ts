@@ -12,7 +12,7 @@ export const corsMiddleware = cors({
 		if (/^exp:\/\//.test(origin)) return origin;
 		return origin;
 	},
-	allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 	allowHeaders: ["Content-Type", "Authorization"],
 	maxAge: 86400,
 });

@@ -1,0 +1,112 @@
+name: Deploy to droplet
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "docker-compose.prod.yml"
+      - "docker/caddy/**"
+      - "apps/server/Dockerfile"
+      - "apps/admin/Dockerfile"
+      - "scripts/build-and-push.sh"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/deploy.yml"
+  # Lets you trigger from the GitHub UI too (Actions → Deploy → Run workflow).
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    name: Build + push images
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install
+
+      - name: Build shared package
+        run: bun run --filter @content-assist/shared build
+
+      - name: Build admin (Next.js)
+        env:
+          # Same-origin via caddy — admin calls /api/*, no CORS.
+          # Override in repo secret if you eventually split domains.
+          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || '/api' }}
+        run: bun run --filter admin build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute image tag
+        id: meta
+        # Use the short SHA as the tag + always update `latest`. This way
+        # rollbacks are a matter of `docker compose pull` a specific tag.
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "image_tag=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build + push server image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/server/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/content-assist-server:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/content-assist-server:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha,scope=server
+          cache-to: type=gha,mode=max,scope=server
+
+      - name: Build + push admin image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/admin/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/content-assist-admin:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/content-assist-admin:${{ steps.meta.outputs.image_tag }}
+          cache-from: type=gha,scope=admin
+          cache-to: type=gha,mode=max,scope=admin
+
+  deploy:
+    name: Pull + restart on droplet
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into droplet and redeploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd ~
+            echo "→ pulling images"
+            docker compose -f docker-compose.prod.yml pull
+            echo "→ restarting services"
+            docker compose -f docker-compose.prod.yml up -d
+            echo "→ waiting for healthy"
+            sleep 8
+            docker compose -f docker-compose.prod.yml ps
+            echo "✓ deploy complete (tag ${{ needs.build-and-push.outputs.image_tag }})"

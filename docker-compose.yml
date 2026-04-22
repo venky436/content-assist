@@ -1,3 +1,13 @@
+name: content-assist
+
+# Minimal dev compose — Docker runs ONLY the database. The server and
+# admin run on the host with bun (`cd apps/server && bun run dev`,
+# `cd apps/admin && bun run dev`). Nginx isn't needed for local dev.
+#
+# For a full single-droplet deployment (server + admin + nginx all
+# containerised), see the archived files in docker/legacy/ — that path
+# can be revisited once the dev loop is locked in.
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -14,29 +24,15 @@ services:
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-content_assist}"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
+    networks:
+      - content-assist
 
-  server:
-    build:
-      context: .
-      dockerfile: apps/server/Dockerfile
-    container_name: content-assist-server
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      NODE_ENV: production
-      SERVER_PORT: ${SERVER_PORT:-3000}
-      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-content_assist}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      STABILITY_API_KEY: ${STABILITY_API_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
-    ports:
-      - "${SERVER_PORT:-3000}:3000"
+networks:
+  content-assist:
+    driver: bridge
 
 volumes:
   postgres_data:

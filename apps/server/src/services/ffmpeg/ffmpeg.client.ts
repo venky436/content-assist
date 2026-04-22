@@ -96,8 +96,37 @@ export function runFfmpeg(
 }
 
 /**
+ * Extract audio from a video file into a standalone MP3 at `outPath`.
+ * Used by the ingest pipeline to feed Whisper. 60s timeout is plenty for
+ * the enforced 30s clip limit.
+ */
+export function extractAudio(
+	inputPath: string,
+	outPath: string,
+	timeoutMs = 60_000,
+): Promise<void> {
+	return runFfmpeg(
+		[
+			"-y",
+			"-i",
+			inputPath,
+			"-vn",
+			"-acodec",
+			"libmp3lame",
+			"-q:a",
+			"2",
+			outPath,
+		],
+		{ timeoutMs },
+	);
+}
+
+/**
  * Probe audio duration (seconds) via ffprobe. Returns 0 on failure — callers
  * should treat 0 as "unknown" and fall back to a sensible default.
+ *
+ * Works on both audio and video files since ffprobe reads the container's
+ * `format.duration`, regardless of whether streams are audio-only.
  */
 export function probeAudioDuration(filePath: string): Promise<number> {
 	return new Promise((resolve) => {

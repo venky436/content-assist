@@ -1,8 +1,20 @@
 import ky, { HTTPError } from "ky";
 import type { ZodTypeAny, z } from "zod";
+import { getAuthTokenSync, useAuthStore } from "@/stores/auth-store";
 
 const prefixUrl =
 	process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "") ?? "http://localhost:3000";
+
+/**
+ * Paths that must NEVER trigger the auth 401 handler — a 401 from these
+ * is part of the normal flow (bad creds, expired refresh, etc.).
+ */
+const AUTH_PATH_ALLOWLIST = ["auth/signin", "auth/signup", "auth/me"];
+
+function is401ExemptPath(url: string): boolean {
+	const normalized = url.replace(/^\/+/, "").replace(/[?#].*$/, "");
+	return AUTH_PATH_ALLOWLIST.some((p) => normalized.endsWith(p));
+}
 
 export const http = ky.create({
 	prefixUrl,
@@ -14,6 +26,31 @@ export const http = ky.create({
 				if (!request.headers.has("Content-Type")) {
 					request.headers.set("Content-Type", "application/json");
 				}
+				// Attach Bearer token for every request — synchronous read from the
+				// module mirror / localStorage (both are populated by Zustand persist).
+				const token = getAuthTokenSync();
+				if (token && !request.headers.has("Authorization")) {
+					request.headers.set("Authorization", `Bearer ${token}`);
+				}
+			},
+		],
+		afterResponse: [
+			(request, _options, response) => {
+				if (response.status !== 401) return response;
+				if (is401ExemptPath(request.url)) return response;
+				// Session gone or token invalid — wipe state + punt to signin with a
+				// returnTo so the user lands back where they were.
+				if (typeof window !== "undefined") {
+					const returnTo = encodeURIComponent(
+						`${window.location.pathname}${window.location.search}`,
+					);
+					useAuthStore.getState().clearAuth();
+					const onAuthPage = window.location.pathname.startsWith("/auth/");
+					if (!onAuthPage) {
+						window.location.assign(`/auth/signin?expired=1&returnTo=${returnTo}`);
+					}
+				}
+				return response;
 			},
 		],
 	},
