@@ -9,4 +9,7 @@ serve({ fetch: app.fetch, port: config.port }, ({ port }) => {
 	logger.info({ msg: "server listening", url: `http://localhost:${port}` });
 });
 
-export default app;
+// Intentionally NO default export. Bun auto-starts Bun.serve() on any
+// file-level default fetch-handler export, which would collide with the
+// @hono/node-server instance already listening on `port`. Callers that
+// need the Hono app should import from `@server/app` directly.

@@ -1,0 +1,24 @@
+# Minimal — we're building from pre-built host artifacts now, so we WANT
+# dist/, .next/, and the hoisted node_modules/ to go into the build
+# context. Only exclude stuff that's genuinely garbage or secret.
+
+.git
+.gitignore
+.DS_Store
+*.log
+
+# Never bake secrets into an image
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Mobile (Expo) is not deployed here
+apps/mobile
+
+# Legacy dockerfiles we archived
+docker/legacy
+
+# Editor noise
+.vscode
+.idea

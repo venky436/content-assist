@@ -2,7 +2,16 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { ArrowRight, ImageIcon, Mic, PlaySquare, Search, Sparkles } from "lucide-react";
+import {
+	Bookmark,
+	Hash,
+	ImageIcon,
+	Mic,
+	PlaySquare,
+	Search,
+	Sparkles,
+	type LucideIcon,
+} from "lucide-react";
 import type { SavedPost } from "@content-assist/shared";
 import { cn } from "@/lib/cn";
 import { formatRelative } from "@/modules/saved/format";
@@ -12,232 +21,274 @@ type Props = {
 	index: number;
 };
 
-const VERDICT_TEXT: Record<NonNullable<SavedPost["verdict"]>, string> = {
+type Variant = "generate" | "script" | "analyze";
+
+/**
+ * Visual language per source. Pink = default brand; violet for Script posts;
+ * success green + verdict colours for Analyze. Matches the detail page.
+ */
+const VARIANT_STYLES: Record<
+	Variant,
+	{
+		icon: LucideIcon;
+		label: string;
+		chip: string;
+		iconTextClass: string;
+		hoverGlow: string;
+		coverFallback: string;
+	}
+> = {
+	generate: {
+		icon: Sparkles,
+		label: "Post",
+		chip: "border-accent/40 bg-accent-soft text-accent",
+		iconTextClass: "text-accent",
+		hoverGlow:
+			"group-hover:shadow-[0_18px_50px_-18px_hsl(var(--accent)/0.45),0_0_0_1px_hsl(var(--accent)/0.45)]",
+		coverFallback:
+			"bg-gradient-to-br from-accent/30 via-accent/10 to-transparent",
+	},
+	script: {
+		icon: Mic,
+		label: "Script",
+		chip: "border-[hsl(270_80%_65%/0.4)] bg-[hsl(270_80%_65%/0.14)] text-[hsl(270_80%_78%)]",
+		iconTextClass: "text-[hsl(270_80%_78%)]",
+		hoverGlow:
+			"group-hover:shadow-[0_18px_50px_-18px_hsl(270_80%_65%/0.45),0_0_0_1px_hsl(270_80%_65%/0.45)]",
+		coverFallback:
+			"bg-gradient-to-br from-[hsl(270_80%_65%/0.3)] via-[hsl(270_80%_65%/0.1)] to-transparent",
+	},
+	analyze: {
+		icon: Search,
+		label: "Analyzed",
+		chip: "border-success/40 bg-success-soft text-success",
+		iconTextClass: "text-success",
+		hoverGlow:
+			"group-hover:shadow-[0_18px_50px_-18px_hsl(var(--success)/0.45),0_0_0_1px_hsl(var(--success)/0.45)]",
+		coverFallback:
+			"bg-gradient-to-br from-success/30 via-success/10 to-transparent",
+	},
+};
+
+const VERDICT_COLORS: Record<NonNullable<SavedPost["verdict"]>, string> = {
 	Weak: "text-danger",
 	Average: "text-[hsl(38_92%_60%)]",
 	Strong: "text-accent",
 	"Very Strong": "text-success",
 };
 
-/**
- * Mode-driven palette so each card reads its type from 3 feet away:
- *   Analyzed  → hot pink     (accent)
- *   Script    → violet
- *   Faceless  → emerald (success)
- */
-function palette(source: "accent" | "violet" | "success") {
-	if (source === "accent") {
-		return {
-			ring: "from-accent/25",
-			glow: "group-hover:shadow-[0_0_0_1px_hsl(var(--accent)/0.5),0_20px_40px_-20px_hsl(var(--accent)/0.4)]",
-			stripe: "from-accent via-accent to-accent/50",
-			icon: "bg-accent-soft text-accent border-accent/40",
-			text: "text-accent",
-			quoteBar: "bg-accent/60",
-		};
+function pickVariant(post: SavedPost): Variant {
+	if (post.source === "analyze") return "analyze";
+	if (post.mode === "on_camera") return "script";
+	return "generate";
+}
+
+function getPreview(post: SavedPost, variant: Variant): string | null {
+	if (variant === "analyze") {
+		return post.improvedPost ?? post.betterHook ?? post.originalContent ?? null;
 	}
-	if (source === "violet") {
-		return {
-			ring: "from-[hsl(270_80%_65%/0.3)]",
-			glow: "group-hover:shadow-[0_0_0_1px_hsl(270_80%_65%/0.5),0_20px_40px_-20px_hsl(270_80%_65%/0.4)]",
-			stripe:
-				"from-[hsl(270_80%_65%)] via-[hsl(270_80%_65%)] to-[hsl(270_80%_65%/0.5)]",
-			icon: "bg-[hsl(270_80%_65%/0.16)] text-[hsl(270_80%_78%)] border-[hsl(270_80%_65%/0.4)]",
-			text: "text-[hsl(270_80%_78%)]",
-			quoteBar: "bg-[hsl(270_80%_65%/0.6)]",
-		};
+	if (variant === "script") {
+		return post.scriptHook ?? post.scriptLines?.[0] ?? null;
 	}
-	return {
-		ring: "from-success/25",
-		glow: "group-hover:shadow-[0_0_0_1px_hsl(var(--success)/0.5),0_20px_40px_-20px_hsl(var(--success)/0.4)]",
-		stripe: "from-success via-success to-success/50",
-		icon: "bg-success-soft text-success border-success/40",
-		text: "text-success",
-		quoteBar: "bg-success/60",
-	};
+	return post.recommendedHook ?? post.hooks?.[0] ?? post.caption ?? null;
 }
 
 export function SavedPostCard({ post, index }: Props) {
-	const isAnalyzed = post.source === "analyze";
-	const isScript = !isAnalyzed && post.mode === "on_camera";
+	const variant = pickVariant(post);
+	const styles = VARIANT_STYLES[variant];
+	const VariantIcon = styles.icon;
 
-	const SourceIcon = isAnalyzed ? Search : isScript ? Mic : Sparkles;
-	const sourceLabel = isAnalyzed ? "Analyzed" : isScript ? "Script" : "Post";
-	const p = palette(isAnalyzed ? "accent" : isScript ? "violet" : "success");
-
-	const preview = isAnalyzed
-		? post.improvedPost ?? post.betterHook ?? post.originalContent
-		: isScript
-			? post.scriptHook ?? post.scriptLines?.[0]
-			: post.recommendedHook ?? post.hooks?.[0];
-
-	const hasImages = Boolean(post.images && post.images.length > 0);
+	const images = post.images ?? [];
+	const heroImage = images[0];
+	const hasImages = images.length > 0;
 	const hasVideo = Boolean(post.video);
+	const extraImages = Math.max(0, images.length - 1);
+	const hashtagCount = post.hashtags?.length ?? 0;
+
+	const preview = getPreview(post, variant);
+	const verdict = post.verdict;
+	const verdictColor = verdict ? VERDICT_COLORS[verdict] : null;
 
 	return (
 		<motion.div
-			initial={{ opacity: 0, y: 12 }}
+			initial={{ opacity: 0, y: 14 }}
 			animate={{ opacity: 1, y: 0 }}
 			transition={{ duration: 0.35, delay: 0.04 * index, ease: "easeOut" }}
-			whileHover={{ y: -3 }}
+			whileHover={{ y: -4 }}
 		>
 			<Link href={`/saved/${post.id}`} className="block">
 				<article
 					className={cn(
-						"group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-gradient-surface transition-all duration-300",
-						p.glow,
+						"group relative flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-surface transition-all duration-300 hover:border-border-strong",
+						styles.hoverGlow,
 					)}
 				>
-					{/* Left accent stripe — subtly fades out bottom for premium feel */}
-					<div
-						className={cn(
-							"pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b",
-							p.stripe,
-						)}
-					/>
-
-					{/* Top-right ambient glow — mode-colored, softens the surface */}
-					<div
-						aria-hidden
-						className={cn(
-							"pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-gradient-radial to-transparent blur-3xl opacity-60 transition-opacity duration-500 group-hover:opacity-100",
-							p.ring,
-						)}
-					/>
-
-					{/* Very subtle inner highlight line for a lifted feel */}
-					<div
-						aria-hidden
-						className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent"
-					/>
-
-					<div className="relative flex flex-1 flex-col gap-4 p-5">
-						{/* Header — icon + label + date */}
-						<header className="flex items-start justify-between gap-3">
-							<div className="flex items-center gap-2.5">
-								<span
-									className={cn(
-										"flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
-										p.icon,
-									)}
-								>
-									<SourceIcon className="h-4 w-4" strokeWidth={2.25} />
-								</span>
-								<div className="flex flex-col leading-tight">
-									<span
-										className={cn(
-											"text-[10px] font-bold uppercase tracking-[0.14em]",
-											p.text,
-										)}
-									>
-										{sourceLabel}
-									</span>
-									<span className="text-[11px] text-text-muted">
-										{formatRelative(post.updatedAt)}
-									</span>
-								</div>
-							</div>
-
-							{/* Score ring for analyzed posts, format pill otherwise */}
-							{isAnalyzed && typeof post.score === "number" ? (
-								<div
-									className={cn(
-										"relative flex h-11 w-11 shrink-0 items-center justify-center",
-									)}
-								>
-									<svg
-										viewBox="0 0 44 44"
-										className="absolute inset-0 h-full w-full -rotate-90"
-									>
-										<circle
-											cx="22"
-											cy="22"
-											r="18"
-											fill="none"
-											stroke="hsl(var(--border))"
-											strokeWidth="3"
-										/>
-										<circle
-											cx="22"
-											cy="22"
-											r="18"
-											fill="none"
-											strokeLinecap="round"
-											strokeWidth="3"
-											stroke="currentColor"
-											strokeDasharray={`${
-												(Math.max(0, Math.min(100, post.score)) / 100) * 113.1
-											} 113.1`}
-											className={post.verdict ? VERDICT_TEXT[post.verdict] : p.text}
-										/>
-									</svg>
-									<span
-										className={cn(
-											"relative text-[13px] font-bold tabular-nums",
-											post.verdict ? VERDICT_TEXT[post.verdict] : "",
-										)}
-									>
-										{post.score}
-									</span>
-								</div>
-							) : (
-								<span className="shrink-0 rounded-full border border-border bg-bg-elevated/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-text-muted">
-									{post.contentType}
-								</span>
-							)}
-						</header>
-
-						{/* Idea headline */}
-						<h3 className="line-clamp-2 text-balance text-[17px] font-semibold leading-[1.3] tracking-tight text-text-primary">
-							{post.idea}
-						</h3>
-
-						{/* Preview — quote-style with subtle left bar */}
-						{preview ? (
-							<div className="flex items-start gap-3">
-								<span
-									className={cn(
-										"mt-1 h-[38px] w-[2px] shrink-0 rounded-full",
-										p.quoteBar,
-									)}
+					{/* --- Thumbnail (IG-feed-tile style: image-first) --- */}
+					<div className="relative aspect-[4/5] w-full overflow-hidden">
+						{heroImage ? (
+							// eslint-disable-next-line @next/next/no-img-element
+							<img
+								src={heroImage.url}
+								alt=""
+								loading="lazy"
+								className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+							/>
+						) : (
+							<div
+								className={cn(
+									"absolute inset-0 flex items-center justify-center",
+									styles.coverFallback,
+								)}
+							>
+								<VariantIcon
+									className={cn("h-12 w-12 opacity-70", styles.iconTextClass)}
+									strokeWidth={1.5}
 								/>
-								<p className="line-clamp-2 text-[13px] leading-relaxed text-text-secondary">
-									{preview.split("\n")[0]}
-								</p>
+							</div>
+						)}
+
+						{/* Bottom gradient — keeps badges legible over photos */}
+						<div
+							aria-hidden
+							className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 via-black/20 to-transparent"
+						/>
+
+						{/* Top-left: source + content type chips */}
+						<div className="absolute left-3 top-3 flex items-center gap-1.5">
+							<span
+								className={cn(
+									"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] backdrop-blur",
+									styles.chip,
+								)}
+							>
+								<VariantIcon className="h-2.5 w-2.5" strokeWidth={2.75} />
+								{styles.label}
+							</span>
+							<span className="rounded-full border border-white/15 bg-black/45 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/85 backdrop-blur">
+								{post.contentType}
+							</span>
+						</div>
+
+						{/* Top-right: score ring for analyzed posts */}
+						{variant === "analyze" &&
+						typeof post.score === "number" &&
+						verdictColor ? (
+							<div className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-black/55 backdrop-blur">
+								<svg
+									viewBox="0 0 44 44"
+									className="absolute inset-0 h-full w-full -rotate-90"
+								>
+									<circle
+										cx="22"
+										cy="22"
+										r="18"
+										fill="none"
+										stroke="rgba(255,255,255,0.15)"
+										strokeWidth="3"
+									/>
+									<circle
+										cx="22"
+										cy="22"
+										r="18"
+										fill="none"
+										strokeLinecap="round"
+										strokeWidth="3"
+										stroke="currentColor"
+										strokeDasharray={`${(Math.max(0, Math.min(100, post.score)) / 100) * 113.1} 113.1`}
+										className={verdictColor}
+									/>
+								</svg>
+								<span
+									className={cn(
+										"relative text-[12px] font-bold tabular-nums",
+										verdictColor,
+									)}
+								>
+									{post.score}
+								</span>
 							</div>
 						) : null}
 
-						{/* Footer — media indicators + arrow */}
-						<footer className="mt-auto flex items-center justify-between pt-2">
-							<div className="flex items-center gap-1.5">
-								{hasImages ? (
-									<span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-alt/60 px-2 py-0.5 text-[10px] font-semibold text-text-secondary">
-										<ImageIcon className="h-2.5 w-2.5" strokeWidth={2.5} />
-										{post.images?.length ?? 0}
-									</span>
-								) : null}
-								{hasVideo ? (
-									<span className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 text-[10px] font-semibold text-accent">
-										<PlaySquare className="h-2.5 w-2.5" strokeWidth={2.5} />
-										Video
-									</span>
-								) : null}
-								{!hasImages && !hasVideo ? (
-									<span className="text-[10px] font-semibold uppercase tracking-widest text-text-muted">
-										Open →
-									</span>
-								) : null}
+						{/* Bottom-left: media badges */}
+						<div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+							{hasImages ? (
+								<span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
+									<ImageIcon className="h-2.5 w-2.5" strokeWidth={2.5} />
+									{images.length}
+								</span>
+							) : null}
+							{hasVideo ? (
+								<span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
+									<PlaySquare className="h-2.5 w-2.5" strokeWidth={2.5} />
+									Reel
+								</span>
+							) : null}
+							{hashtagCount > 0 ? (
+								<span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur">
+									<Hash className="h-2.5 w-2.5" strokeWidth={2.5} />
+									{hashtagCount}
+								</span>
+							) : null}
+							{!hasImages && !hasVideo && hashtagCount === 0 ? (
+								<span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/85 backdrop-blur">
+									<Bookmark className="h-2.5 w-2.5" strokeWidth={2.5} />
+									Saved
+								</span>
+							) : null}
+						</div>
+
+						{/* Bottom-right: +N for extra images */}
+						{extraImages > 0 ? (
+							<span className="absolute bottom-3 right-3 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-bold tabular-nums text-white backdrop-blur">
+								+{extraImages}
+							</span>
+						) : null}
+
+						{/* Center play pulse for videos */}
+						{hasVideo ? (
+							<div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+								<motion.span
+									initial={{ scale: 0.9, opacity: 0.85 }}
+									animate={{ scale: 1, opacity: 0.95 }}
+									transition={{
+										duration: 1.8,
+										repeat: Infinity,
+										repeatType: "reverse",
+										ease: "easeInOut",
+									}}
+									className="flex h-14 w-14 items-center justify-center rounded-full bg-white/95 text-bg shadow-2xl"
+								>
+									<PlaySquare className="ml-0.5 h-6 w-6 fill-current" strokeWidth={0} />
+								</motion.span>
 							</div>
-							<motion.span
-								className={cn(
-									"flex h-8 w-8 items-center justify-center rounded-full border border-border bg-surface-alt/70 transition-all group-hover:border-border-strong",
-									p.text,
-								)}
-								whileHover={{ x: 2 }}
-							>
-								<ArrowRight className="h-3.5 w-3.5" strokeWidth={2.5} />
-							</motion.span>
-						</footer>
+						) : null}
+					</div>
+
+					{/* --- Body --- */}
+					<div className="relative flex flex-1 flex-col gap-2 p-4">
+						<div className="flex items-center justify-between gap-3 text-[11px] text-text-muted">
+							<span>{formatRelative(post.updatedAt)}</span>
+							{verdict && variant === "analyze" ? (
+								<span
+									className={cn(
+										"inline-flex items-center rounded-full border border-current/40 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em]",
+										verdictColor,
+									)}
+								>
+									{verdict}
+								</span>
+							) : null}
+						</div>
+
+						<h3 className="line-clamp-2 text-balance text-[16px] font-semibold leading-snug tracking-tight text-text-primary">
+							{post.idea}
+						</h3>
+
+						{preview ? (
+							<p className="line-clamp-2 text-[13px] leading-relaxed text-text-secondary">
+								{preview.split("\n")[0]}
+							</p>
+						) : null}
 					</div>
 				</article>
 			</Link>

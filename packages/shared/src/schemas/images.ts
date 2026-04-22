@@ -18,6 +18,14 @@ export const generatedImageSchema = z.object({
 	// with previously-saved posts (old value was a free string).
 	label: sceneLabelSchema.optional(),
 	type: z.string().min(1).max(40).optional(),
+	/**
+	 * S3 object key owned by us (e.g. `generated-images/{userId}/{uuid}.jpg`).
+	 * Present on freshly-generated images that were mirrored into our bucket.
+	 * Absent on legacy posts that were saved before the S3 mirror shipped.
+	 * The client stores this verbatim when saving; the server re-presigns
+	 * `url` from this key on every fetch so presigned-URL expiry is invisible.
+	 */
+	objectKey: z.string().min(1).optional(),
 });
 export type GeneratedImage = z.infer<typeof generatedImageSchema>;
 

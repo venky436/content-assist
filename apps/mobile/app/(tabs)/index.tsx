@@ -100,7 +100,7 @@ export default function HomeScreen() {
 
 	const [video, setVideo] = useState<GenerateVideoResponse | null>(null);
 	const [bgmEnabled, setBgmEnabled] = useState(true);
-	const [voiceGender, setVoiceGender] = useState<VideoVoice>("female");
+	const [voiceGender, setVoiceGender] = useState<VideoVoice>("nova");
 	const generateVideo = useGenerateVideo({
 		onSuccess: (data) => setVideo(data),
 	});

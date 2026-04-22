@@ -24,8 +24,8 @@ const STEPS: Step[] = [
 	{ label: "Idea", sub: "Drop your topic", icon: Lightbulb, phase: 1 },
 	{ label: "Script", sub: "Hooks · caption · tags", icon: FileText, phase: 1 },
 	{ label: "Improve", sub: "Ruthless critic", icon: Wand2, phase: 1 },
-	{ label: "Images", sub: "Scene-driven visuals", icon: ImageIcon, phase: 2 },
-	{ label: "Video", sub: "Reel-ready clip", icon: PlaySquare, phase: 2 },
+	{ label: "Images", sub: "Scene-driven visuals", icon: ImageIcon, phase: 1 },
+	{ label: "Video", sub: "Reel-ready clip", icon: PlaySquare, phase: 1 },
 	{ label: "Save", sub: "Your workspace", icon: Bookmark, phase: 1 },
 ];
 

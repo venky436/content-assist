@@ -3,21 +3,27 @@
   "private": true,
   "version": "0.0.1",
   "description": "AI Instagram Content Assistant — monorepo (mobile, admin, server)",
-  "packageManager": "pnpm@9.12.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=20.0.0",
-    "pnpm": ">=9.0.0"
+    "bun": ">=1.1.0"
   },
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=server --filter=admin",
+    "dev:server": "turbo run dev --filter=server",
+    "dev:admin": "turbo run dev --filter=admin",
+    "dev:mobile": "turbo run dev --filter=mobile",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "db:generate": "pnpm --filter @content-assist/db generate",
-    "db:migrate": "pnpm --filter @content-assist/db migrate",
-    "db:studio": "pnpm --filter @content-assist/db studio",
+    "db:generate": "bun run --filter @content-assist/db generate",
+    "db:migrate": "bun run --filter @content-assist/db migrate",
+    "db:studio": "bun run --filter @content-assist/db studio",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"

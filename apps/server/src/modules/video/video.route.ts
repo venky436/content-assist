@@ -3,11 +3,12 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { logger } from "@server/lib/logger";
+import type { AppEnv } from "@server/middleware/auth.middleware";
 import { getVideoPath } from "@server/services/video-storage";
 import { generateVideoHandler } from "@server/modules/video/video.handler";
 import { generateVideoRoute } from "@server/modules/video/video.schema";
 
-const video = new OpenAPIHono();
+const video = new OpenAPIHono<AppEnv>();
 
 video.openapi(generateVideoRoute, generateVideoHandler);
 

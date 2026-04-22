@@ -232,7 +232,7 @@ export default function SavedDetailScreen() {
 				})),
 				bgm: post.video?.bgmUsed ?? true,
 				tone: "motivational",
-				voice: post.video?.voice ?? "female",
+				voice: post.video?.voice ?? "nova",
 			},
 			{
 				onSuccess: async (data) => {

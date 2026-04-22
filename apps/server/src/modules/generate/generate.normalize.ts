@@ -27,11 +27,22 @@ const SLANG_MAP: Record<string, string> = {
 	"gonna ": "going to ",
 };
 
+function escapeRegex(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function normalizeIdea(raw: string): string {
 	let text = raw.trim().toLowerCase();
 
+	// Slang replacements must respect word boundaries — a naive substring
+	// replace turns "about" → "aboyout" because the `u → you` rule matches
+	// every `u` character inside every word. Keys ending in a space are
+	// phrase-level shortcuts; others are single tokens.
 	for (const [from, to] of Object.entries(SLANG_MAP)) {
-		text = text.split(from).join(to);
+		const pattern = from.endsWith(" ")
+			? new RegExp(`\\b${escapeRegex(from.trimEnd())}\\s`, "g")
+			: new RegExp(`\\b${escapeRegex(from)}\\b`, "g");
+		text = text.replace(pattern, to);
 	}
 
 	text = text

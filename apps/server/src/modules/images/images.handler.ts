@@ -1,4 +1,5 @@
 import type { RouteHandler } from "@hono/zod-openapi";
+import type { AppEnv } from "@server/middleware/auth.middleware";
 import {
 	generateImagesResponseSchema,
 	type SceneType,
@@ -6,6 +7,7 @@ import {
 import { logger } from "@server/lib/logger";
 import { GeminiError, generateJson } from "@server/services/gemini";
 import { ReplicateError, generateImages } from "@server/services/replicate";
+import { mirrorUrlToS3, storage } from "@server/services/storage";
 import {
 	IMAGE_PROMPT_SYSTEM,
 	buildImagePrompt,
@@ -15,12 +17,54 @@ import type {
 	regenerateImagesRoute,
 } from "@server/modules/images/images.schema";
 
+/**
+ * Mirror a Replicate CDN URL into our S3 bucket and return a durable
+ * presigned GET alongside the S3 objectKey. Returns `null` on mirror failure
+ * so the caller can fall back to the raw Replicate URL (the post is fragile
+ * in that case, but the generation isn't wasted).
+ */
+async function mirrorReplicateImage(
+	replicateUrl: string,
+	userId: string,
+): Promise<{ url: string; objectKey: string } | null> {
+	const objectKey = storage.buildKey({
+		prefix: "generated-images",
+		userId,
+		ext: "webp",
+	});
+	try {
+		await mirrorUrlToS3(replicateUrl, objectKey, "image/webp");
+		const { url } = await storage.presignGet({ key: objectKey });
+		return { url, objectKey };
+	} catch (err) {
+		logger.warn({
+			msg: "images: S3 mirror failed, falling back to raw Replicate URL",
+			error: err instanceof Error ? err.message : String(err),
+			objectKey,
+		});
+		return null;
+	}
+}
+
 const GEMINI_TIMEOUT_MS = 10_000;
 const MAX_SCENE_PROMPT_LEN = 500;
 const MAX_LABEL_LEN = 40;
 const DEFAULT_COUNT = 3;
 const REPLICATE_RETRY_DELAY_MS = 11_000;
 const REPLICATE_MAX_RETRIES = 1;
+
+/**
+ * Appended to every Gemini-generated scene prompt before it goes to Replicate.
+ * Guarantees production-grade look regardless of what Gemini wrote for lighting/style.
+ */
+const QUALITY_SUFFIX =
+	"cinematic lighting, ultra realistic, sharp focus, depth of field, professional photography, 4k detail";
+
+function withQualitySuffix(prompt: string): string {
+	// Trim trailing punctuation before appending so the suffix reads cleanly.
+	const trimmed = prompt.trim().replace(/[.,;:\s]+$/g, "");
+	return `${trimmed}, ${QUALITY_SUFFIX}`;
+}
 
 type Scene = {
 	sceneType: SceneType;
@@ -130,7 +174,7 @@ function pickScenesToRender(
 
 type Route = typeof generateImagesRoute | typeof regenerateImagesRoute;
 
-function makeHandler(label: string): RouteHandler<Route> {
+function makeHandler(label: string): RouteHandler<Route, AppEnv> {
 	return async (c) => {
 		const body = c.req.valid("json");
 		const startedAt = Date.now();
@@ -216,6 +260,7 @@ function makeHandler(label: string): RouteHandler<Route> {
 		// Render scenes SEQUENTIALLY to respect Replicate's burst=1 limit on the
 		// throttled tier (< $5 credit). Parallel calls otherwise 429 instantly.
 		// Trade-off: 2-image gen ≈ 12–16s instead of 6–8s. Acceptable given the robustness.
+		const userId = c.get("userId");
 		const now = Date.now();
 		const images: Array<{
 			url: string;
@@ -223,20 +268,28 @@ function makeHandler(label: string): RouteHandler<Route> {
 			generatedAt: number;
 			sceneType?: SceneType;
 			label?: string;
+			objectKey?: string;
 		}> = [];
 		const failures: ReplicateError[] = [];
 		for (const scene of scenesToRender) {
+			// Append the universal quality suffix right before sending to Replicate.
+			// Stored on the image record too — so per-scene regenerate preserves it.
+			const finalPrompt = withQualitySuffix(scene.prompt);
 			try {
-				const url = await renderOne(scene.prompt);
-				if (url) {
-					images.push({
-						url,
-						prompt: scene.prompt,
-						generatedAt: now,
-						sceneType: scene.sceneType,
-						label: scene.label,
-					});
-				}
+				const replicateUrl = await renderOne(finalPrompt);
+				if (!replicateUrl) continue;
+				// Mirror into S3 so the URL survives Replicate's CDN expiry. If the
+				// mirror itself fails we fall back to the raw Replicate URL — ugly
+				// but the generation isn't wasted.
+				const mirrored = await mirrorReplicateImage(replicateUrl, userId);
+				images.push({
+					url: mirrored?.url ?? replicateUrl,
+					prompt: finalPrompt,
+					generatedAt: now,
+					sceneType: scene.sceneType,
+					label: scene.label,
+					objectKey: mirrored?.objectKey,
+				});
 			} catch (err) {
 				if (err instanceof ReplicateError) failures.push(err);
 				logger.warn({
@@ -309,6 +362,8 @@ function makeHandler(label: string): RouteHandler<Route> {
 			labels: scenesToRender.map((s) => s.label),
 			modifier: body.modifier ?? null,
 			latencyMs: Date.now() - startedAt,
+			userId: c.get("userId"),
+			userEmail: c.get("user")?.email,
 		});
 
 		return c.json(parsed.data, 200);

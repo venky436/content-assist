@@ -1,13 +1,14 @@
 import type { RouteHandler } from "@hono/zod-openapi";
 import { generateScriptResponseSchema } from "@content-assist/shared";
 import { logger } from "@server/lib/logger";
+import type { AppEnv } from "@server/middleware/auth.middleware";
 import { GeminiError, generateJson } from "@server/services/gemini";
 import { normalizeIdea } from "@server/modules/generate/generate.normalize";
 import { buildScriptPrompt } from "@server/modules/generate/script.prompt";
 import { cleanScript } from "@server/modules/generate/script.clean";
 import type { scriptRoute } from "@server/modules/generate/script.schema";
 
-export const scriptHandler: RouteHandler<typeof scriptRoute> = async (c) => {
+export const scriptHandler: RouteHandler<typeof scriptRoute, AppEnv> = async (c) => {
 	const body = c.req.valid("json");
 	const normalizedIdea = normalizeIdea(body.idea);
 	const prompt = buildScriptPrompt({
@@ -76,6 +77,8 @@ export const scriptHandler: RouteHandler<typeof scriptRoute> = async (c) => {
 		avoidCount: body.avoidHooks?.length ?? 0,
 		lineCount: parsed.data.lines.length,
 		latencyMs: Date.now() - startedAt,
+		userId: c.get("userId"),
+		userEmail: c.get("user")?.email,
 	});
 
 	return c.json(parsed.data, 200);
